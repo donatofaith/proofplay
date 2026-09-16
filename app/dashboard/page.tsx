@@ -536,6 +536,13 @@ export default function DashboardPage() {
   function createSkillCard() {
     if (!result) return;
 
+    if (result.score < 50) {
+      toast.error(
+        "This explanation needs more evidence before it can become a Skill Card.",
+      );
+      return;
+    }
+
     const savedCards = JSON.parse(
       window.localStorage.getItem("proofplay-skill-cards") || "[]",
     );
