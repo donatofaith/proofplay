@@ -18,7 +18,6 @@ import {
   Camera,
   Check,
   ChevronRight,
-  Flame,
   Home,
   ImagePlus,
   Menu,
@@ -48,6 +47,9 @@ type Challenge = {
   icon: ElementType;
   accent: string;
   softAccent: string;
+  conceptLabels: string[];
+  conceptGroups: string[][];
+  reasoningWords: string[];
 };
 
 type AnalysisResult = {
@@ -56,6 +58,9 @@ type AnalysisResult = {
   explanation: string;
   independence: string;
   feedback: string;
+  matchedConcepts: string[];
+  missingConcepts: string[];
+  evidence: string[];
 };
 
 interface SpeechRecognitionAlternativeLike {
@@ -115,6 +120,14 @@ const challenges: Challenge[] = [
     icon: Beaker,
     accent: "#47D7FF",
     softAccent: "rgba(71, 215, 255, 0.14)",
+    conceptLabels: ["evaporation", "condensation", "precipitation", "collection"],
+    conceptGroups: [
+      ["evaporation", "evaporates", "water vapour", "water vapor"],
+      ["condensation", "condenses", "cloud", "cools"],
+      ["precipitation", "rain", "rainfall", "snow"],
+      ["collection", "collects", "river", "lake", "ocean", "ground"],
+    ],
+    reasoningWords: ["sun", "heat", "because", "then", "when", "cycle"],
   },
   {
     id: 2,
@@ -128,6 +141,14 @@ const challenges: Challenge[] = [
     icon: Shapes,
     accent: "#FF9D4D",
     softAccent: "rgba(255, 157, 77, 0.14)",
+    conceptLabels: ["four equal groups", "three objects in each group", "twelve objects altogether", "the multiplication relationship"],
+    conceptGroups: [
+      ["four groups", "4 groups", "four equal", "4 equal"],
+      ["three in each", "3 in each", "groups of three", "groups of 3"],
+      ["twelve", "12"],
+      ["4 x 3", "4 × 3", "four times three", "multiply", "multiplication"],
+    ],
+    reasoningWords: ["equal", "each", "altogether", "because", "so", "means"],
   },
   {
     id: 3,
@@ -141,6 +162,14 @@ const challenges: Challenge[] = [
     icon: BookOpen,
     accent: "#C8F36A",
     softAccent: "rgba(200, 243, 106, 0.14)",
+    conceptLabels: ["the character\'s feeling", "a reason for the feeling", "evidence from the passage", "how the evidence supports the idea"],
+    conceptGroups: [
+      ["feel", "feels", "feeling", "emotion", "happy", "sad", "afraid", "excited", "angry", "worried"],
+      ["because", "since", "reason", "why"],
+      ["passage", "text", "story", "said", "did", "shows"],
+      ["this shows", "this means", "so", "therefore", "which tells"],
+    ],
+    reasoningWords: ["because", "shows", "means", "therefore", "so", "when"],
   },
 ];
 
@@ -150,6 +179,93 @@ const navigation = [
   { label: "Memory Checks", icon: RotateCcw, href: "/memory-checks" },
   { label: "Grown-up View", icon: UserRound, href: "/grown-up" },
 ];
+
+function includesAny(text: string, terms: string[]) {
+  return terms.some((term) => text.includes(term.toLowerCase()));
+}
+
+function analyseEvidence(
+  challenge: Challenge,
+  rawTranscript: string,
+  hasImage: boolean,
+): AnalysisResult {
+  const cleanTranscript = rawTranscript
+    .toLowerCase()
+    .replace(/[^a-z0-9×'\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const wordCount = cleanTranscript
+    ? cleanTranscript.split(" ").filter(Boolean).length
+    : 0;
+
+  const matchedConcepts = challenge.conceptLabels.filter((_, index) =>
+    includesAny(cleanTranscript, challenge.conceptGroups[index]),
+  );
+  const missingConcepts = challenge.conceptLabels.filter(
+    (label) => !matchedConcepts.includes(label),
+  );
+  const reasoningMatches = challenge.reasoningWords.filter((word) =>
+    cleanTranscript.includes(word.toLowerCase()),
+  ).length;
+  const conceptCoverage =
+    matchedConcepts.length / challenge.conceptLabels.length;
+  const detailScore =
+    wordCount >= 70 ? 20 : wordCount >= 45 ? 16 : wordCount >= 25 ? 11 : 5;
+  const conceptScore = Math.round(conceptCoverage * 55);
+  const reasoningScore = Math.min(reasoningMatches * 4, 20);
+  const score = Math.min(
+    100,
+    detailScore + conceptScore + reasoningScore + (hasImage ? 5 : 0),
+  );
+
+  const explanation =
+    score >= 85
+      ? "Strong and specific"
+      : score >= 70
+        ? "Clear"
+        : score >= 50
+          ? "Developing"
+          : "Needs more evidence";
+  const concept =
+    conceptCoverage >= 0.75
+      ? "Well demonstrated"
+      : conceptCoverage >= 0.5
+        ? "Partly demonstrated"
+        : "Not yet demonstrated";
+
+  let feedback: string;
+  if (matchedConcepts.length === 0) {
+    feedback =
+      "Your explanation does not yet include the key ideas for this challenge. Review the instruction and explain each part in your own words.";
+  } else if (missingConcepts.length > 0) {
+    feedback =
+      `You showed understanding of ${matchedConcepts.join(", ")}. Strengthen your proof by also explaining ${missingConcepts.join(", ")}.`;
+  } else if (reasoningMatches < 2) {
+    feedback =
+      "You included the important ideas. Make the reasoning stronger by explaining why the steps happen and how they connect.";
+  } else {
+    feedback =
+      `Your explanation connects ${matchedConcepts.join(", ")} with clear reasoning and relevant detail.`;
+  }
+
+  return {
+    score,
+    concept,
+    explanation,
+    independence: "Not measured",
+    feedback,
+    matchedConcepts,
+    missingConcepts,
+    evidence: [
+      `${wordCount} spoken or typed words reviewed`,
+      `${matchedConcepts.length} of ${challenge.conceptLabels.length} challenge concepts found`,
+      hasImage
+        ? "A visual work sample was attached"
+        : "No visual work sample was attached",
+    ],
+  };
+}
 
 export default function DashboardPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -169,6 +285,7 @@ export default function DashboardPage() {
   const [analysisStage, setAnalysisStage] = useState("");
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [skillCardOpen, setSkillCardOpen] = useState(false);
+  const [savedCardCount, setSavedCardCount] = useState(0);
 
   const SelectedIcon = selectedChallenge.icon;
 
@@ -177,6 +294,15 @@ export default function DashboardPage() {
       window.SpeechRecognition || window.webkitSpeechRecognition;
 
     setSpeechSupported(Boolean(RecognitionConstructor));
+
+    try {
+      const existingCards = JSON.parse(
+        window.localStorage.getItem("proofplay-skill-cards") || "[]",
+      );
+      setSavedCardCount(Array.isArray(existingCards) ? existingCards.length : 0);
+    } catch {
+      setSavedCardCount(0);
+    }
 
     return () => {
       recognitionRef.current?.abort();
@@ -369,9 +495,11 @@ export default function DashboardPage() {
   }
 
   function runAnalysis() {
-    if (!imagePreview && transcript.trim().length < 15) {
+    const cleanTranscript = transcript.trim();
+
+    if (cleanTranscript.length < 25) {
       toast.error(
-        "Add an image or provide an explanation of at least 15 characters.",
+        "Explain your thinking in at least 25 characters so the evidence can be assessed.",
       );
       return;
     }
@@ -382,35 +510,27 @@ export default function DashboardPage() {
 
     setResult(null);
     setAnalysing(true);
-    setAnalysisStage("Reviewing your learning evidence...");
+    setAnalysisStage("Reading your explanation...");
 
     window.setTimeout(() => {
-      setAnalysisStage("Checking the explanation...");
-    }, 900);
+      setAnalysisStage("Checking challenge-specific concepts...");
+    }, 650);
 
     window.setTimeout(() => {
-      setAnalysisStage("Creating useful learning feedback...");
-    }, 1800);
+      setAnalysisStage("Building evidence-based feedback...");
+    }, 1300);
 
     window.setTimeout(() => {
-      const explanationQuality =
-        transcript.trim().length >= 40 ? "Clear" : "Developing";
-
-      setResult({
-        score: explanationQuality === "Clear" ? 92 : 78,
-        concept: imagePreview || transcript.trim() ? "Proven" : "Developing",
-        explanation: explanationQuality,
-        independence: "Strong",
-        feedback:
-          explanationQuality === "Clear"
-            ? "You demonstrated the main concept clearly and connected the important ideas in your own words."
-            : "You showed the main idea. Add more detail to explain why each step happens.",
-      });
-
+      const evidenceResult = analyseEvidence(
+        selectedChallenge,
+        cleanTranscript,
+        Boolean(imagePreview),
+      );
+      setResult(evidenceResult);
       setAnalysing(false);
       setAnalysisStage("");
-      toast.success("Proof analysis completed.");
-    }, 2800);
+      toast.success("Evidence analysis completed.");
+    }, 1950);
   }
 
   function createSkillCard() {
@@ -429,7 +549,17 @@ export default function DashboardPage() {
       score: result.score,
       independence: result.independence,
       createdAt: new Date().toISOString(),
-      memoryCheck: "In 3 days",
+      challengeTitle: selectedChallenge.title,
+      demonstratedSkill: result.feedback,
+      explanationQuality: result.explanation,
+      supportLevel: result.independence,
+      feedback: result.feedback,
+      matchedConcepts: result.matchedConcepts,
+      missingConcepts: result.missingConcepts,
+      evidence: result.evidence,
+      memoryStatus: "Not checked yet",
+      memoryScore: null,
+      memoryCheck: "Ready after this learning session",
     };
 
     window.localStorage.setItem(
@@ -437,11 +567,11 @@ export default function DashboardPage() {
       JSON.stringify([skillCard, ...savedCards]),
     );
 
+    setSavedCardCount(savedCards.length + 1);
     setSkillCardOpen(true);
   }
 
-  const canAnalyse =
-    Boolean(imagePreview) || transcript.trim().length >= 15;
+  const canAnalyse = transcript.trim().length >= 25;
 
   return (
     <main className="min-h-screen bg-[#0e1020] text-white">
@@ -478,8 +608,8 @@ export default function DashboardPage() {
 
           <div className="flex items-center gap-3">
             <div className="hidden items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold sm:flex">
-              <Flame size={17} className="text-[#ff9d4d]" />
-              4-day learning streak
+              <ShieldCheck size={17} className="text-[#c8f36a]" />
+              {savedCardCount} {savedCardCount === 1 ? "learning proof" : "learning proofs"}
             </div>
 
             <button
@@ -536,7 +666,7 @@ export default function DashboardPage() {
 
               <div className="mt-6 flex items-center gap-2 text-sm font-bold text-[#e5ffad]">
                 <Star size={17} fill="currentColor" />
-                12 skills demonstrated
+                {savedCardCount} {savedCardCount === 1 ? "skill demonstrated" : "skills demonstrated"}
               </div>
             </div>
           </section>
@@ -570,7 +700,7 @@ export default function DashboardPage() {
                 <p className="text-sm font-bold">Next memory check</p>
 
                 <p className="mt-1 text-sm leading-6 text-white/45">
-                  Plant life cycle is ready to practise tomorrow.
+                  Saved Skill Cards become available for a later memory check.
                 </p>
               </div>
             </div>
@@ -595,14 +725,16 @@ export default function DashboardPage() {
 
             <div className="w-full rounded-2xl border border-white/10 bg-white/[0.04] p-4 xl:w-[230px]">
               <div className="mb-3 flex items-center justify-between text-sm font-bold">
-                <span>Weekly goal</span>
-                <span className="text-[#c8f36a]">3 of 5</span>
+                <span>Evidence readiness</span>
+                <span className={canAnalyse ? "text-[#c8f36a]" : "text-white/45"}>
+                  {canAnalyse ? "Ready" : "Add explanation"}
+                </span>
               </div>
 
               <div className="h-2.5 overflow-hidden rounded-full bg-white/10">
                 <motion.div
                   initial={{ width: 0 }}
-                  animate={{ width: "60%" }}
+                  animate={{ width: canAnalyse ? "100%" : transcript.trim().length ? "45%" : "8%" }}
                   className="h-full rounded-full bg-[#c8f36a]"
                 />
               </div>
