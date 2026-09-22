@@ -6,6 +6,16 @@ ProofPlay is an evidence-based learning experience for young learners. Instead o
 
 [Open the live demo](https://proofplay-alpha.vercel.app) · [View the repository](https://github.com/donatofaith/proofplay)
 
+## Product preview
+
+[![ProofPlay landing page](docs/images/proofplay-home.png)](https://proofplay-alpha.vercel.app)
+
+*ProofPlay introduces the evidence-based learning idea and shows what a Living Skill Card records.*
+
+[![ProofPlay learner workspace](docs/images/proofplay-dashboard.png)](https://proofplay-alpha.vercel.app/dashboard)
+
+*The learner workspace provides Science, Mathematics, and Reading challenges with a clear path from activity to evidence.*
+
 > **Pick a challenge → explain it → create proof → check retention**
 
 Built as a hackathon prototype exploring a better answer to one question: **How can digital learning show real understanding, not just task completion?**
